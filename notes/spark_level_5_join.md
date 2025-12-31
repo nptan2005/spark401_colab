@@ -402,4 +402,156 @@ Retry không sửa được kiến trúc
 
 ---
 
+# 🚨 LEVEL 5 – BÀI 4
+
+## Spark Incident Playbook (BANK THỰC TẾ)
+
+> Đây là thứ phân biệt Senior Engineer vs Architect
+
+---
+
+## 🔥 Khi Spark job FAIL trong production – làm gì?
+
+❌ KHÔNG LÀM
+
+-	Fix code ngay
+-	Tăng config mù
+-	Retry vô hạn
+-	Rollback không plan
+
+---
+
+## ✅ PLAYBOOK CHUẨN
+
+### 1️⃣ Freeze trạng thái
+
+- Stop auto-retry
+- Lock downstream jobs
+- Ghi nhận thời điểm & version
+
+---
+
+### 2️⃣ Phân loại incident (5 phút)
+
+|**Loại**|**Dấu hiệu**|
+|--------|------------|
+|Data issue|Null, duplicate, schema drift|
+|Config issue|OOM, quota|
+|Design issue|Shuffle lớn, skew|
+|Infra issue|Node preempted|
+|External|Upstream delay|
+
+---
+
+### 3️⃣ Quyết định: Retry hay Kill
+
+Retry CHỈ KHI:
+- Infra glitch
+- Transient error
+
+Kill NGAY khi:
+- OOM
+- Skew nặng
+- Broadcast fail
+
+📌 Rule
+
+Retry không phải default action
+
+---
+
+### 4️⃣ Communication (Bank-grade)
+
+- Thông báo impact
+- ETA rõ ràng
+- Không hứa mơ hồ
+
+---
+
+### 5️⃣ RCA sau incident
+
+RCA tốt phải trả lời:
+- Vì sao lần này fail?
+- Vì sao test không phát hiện?
+- Làm sao không lặp lại?
+
+#### 🚫 Tránh:
+-	Đổ lỗi
+-	Hotfix vội
+-	“Do data bẩn”
+
+---
+
+## 🧠 CÂU HỎI BẮT BUỘC – LEVEL 5 / BÀI 4
+
+1.	Khi nào KHÔNG retry job dù SLA chưa vỡ?
+>KHÔNG retry job khi:
+>>- OOM (retry sẽ fail y hệt)
+>>- Skew nặng (retry không thay đổi distribution)
+>>- Broadcast fail (design/config issue)
+>>- Data lỗi deterministic (null key, schema drift)
+
+>📌 Rule của bank
+
+>>Retry chỉ dùng cho lỗi không deterministic
+
+2.	Vì sao fix code trong incident là nguy hiểm?
+>Fix code trong incident nguy hiểm vì:
+>>- Che mất root cause thật
+>>- Tạo “false success”
+>>- Không reproducible
+>>- Dễ gây regression ngầm
+
+>📌 Bank principle
+
+>>Incident là để stabilize, không phải để refactor
+
+3.	SLA vs Cost: bank ưu tiên cái nào?
+>Bank ưu tiên:
+>>- SLA cho job critical / regulatory
+>>- Cost cho job analytical / non-critical
+
+>>=> Ưu tiên phụ thuộc TIER của job
+
+>📌 Architect insight
+
+>>Không có “SLA hay Cost”, chỉ có job criticality
+
+4.	Incident do data khác gì do code?
+>Incident do DATA:
+>>- Phụ thuộc input
+>>- Thường xảy ra đột ngột
+>>- Fix bằng validation / quarantine
+
+>Incident do CODE:
+>>- Reproducible
+>>- Lặp lại theo pattern
+>>- Cần redesign hoặc refactor
+
+>📌 Rule
+
+>>- Data issue = symptom
+>>- Code issue = disease
+
+5.	Một RCA tốt phải tránh điều gì?
+> RCA tốt phải tránh:
+>>- Đổ lỗi cá nhân
+>>- Hotfix không test
+>>- Kết luận mơ hồ (“do data bẩn”)
+>>- Không có preventive action
+
+>📌 RCA không phải báo cáo → là tài sản tổ chức
+
+---
+
+## 🏁 TỔNG KẾT LEVEL 5 – SPARK ARCHITECT MINDSET
+
+Bạn đã đi qua:
+
+- ✅ Spark Core
+- ✅ Shuffle / Join / Skew
+- ✅ Tuning đúng – sai
+- ✅ Production incident
+- ✅ Bank-grade mindset
+
 
