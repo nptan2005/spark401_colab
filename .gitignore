@@ -237,8 +237,14 @@ data/silver_out/*
 data/bronze/*
 data/silver/*
 
-jobs/__pycache__/*
+logs/*
+
+spark/jobs/*
+spark/__pycache__/*
+spark/lab/__pycache__/*     
 jobs/cdp/__pycache__/*
 jobs/cdp/orders/__pycache__/*
+
+data/*
 
 text.txt
