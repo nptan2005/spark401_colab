@@ -247,4 +247,8 @@ jobs/cdp/orders/__pycache__/*
 
 data/*
 
+metastore_db/*
+warehouse/*
+spark-warehouse/*
+
 text.txt
