@@ -2,7 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+.vscode/*
 # C extensions
 *.so
 
@@ -246,6 +246,8 @@ jobs/cdp/__pycache__/*
 jobs/cdp/orders/__pycache__/*
 
 data/*
+
+checkpoints/*
 
 metastore_db/*
 warehouse/*
