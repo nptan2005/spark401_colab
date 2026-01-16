@@ -249,6 +249,8 @@ data/*
 
 checkpoints/*
 
+kafka_data/*
+
 metastore_db/*
 warehouse/*
 spark-warehouse/*
