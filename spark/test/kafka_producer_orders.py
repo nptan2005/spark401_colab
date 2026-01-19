@@ -35,7 +35,7 @@ def make_event(order_id: str | None = None) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--brokers", default="localhost:9094")
-    ap.add_argument("--topic", default="orders")
+    ap.add_argument("--topic", default="orders_raw")
     ap.add_argument("--rate", type=float, default=2.0)
     ap.add_argument("--seconds", type=int, default=60)
     ap.add_argument("--dup_rate", type=float, default=0.2)

@@ -137,7 +137,9 @@ scripts/spark_submit.sh \
 
 Bạn đã có script random producer → dùng luôn:
 
-python `scripts/kafka_producer_orders.py`
+```bash
+python spark/test/kafka_producer_orders.py
+```
 
 #### Hoặc kiểm tra nhanh:
 
