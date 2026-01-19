@@ -352,61 +352,83 @@ stream
 
 ---
 
-## 2️⃣ Data Governance / Provenance (Enterprise)
-
-### 2.1 Oracle governance truyền thống
-
-- Data dictionary
-- DB audit
-- Manual lineage
+## 2️⃣ Data Governance / Provenance (Enterprise)$1
 
 ---
 
-### 2.2 Spark-native Governance pattern
+## 2.4 Marquez UI (Lineage) – chạy & debug từng bước
 
-#### a) Job Run Log (Provenance)
+### A) Docker Compose mẫu (đúng image UI)
+> UI của Marquez là **marquez-web** (không phải marquez-ui).
 
-```text
-run_id | job_name | input_rows | output_rows | status
+```yaml
+marquez:
+  image: marquezproject/marquez:latest
+  container_name: marquez-api
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment:
+    MARQUEZ_DB_HOST: postgres
+    MARQUEZ_DB_PORT: 5432
+    MARQUEZ_DB_USER: marquez
+    MARQUEZ_DB_PASSWORD: marquez
+    MARQUEZ_DB_NAME: marquez
+  ports:
+    - "5000:5000"
+
+marquez-ui:
+  image: marquezproject/marquez-web:0.45.0
+  container_name: marquez-ui
+  depends_on:
+    - marquez
+  environment:
+    MARQUEZ_HOST: marquez
+    MARQUEZ_PORT: 5000
+    WEB_PORT: 3000
+  ports:
+    - "3000:3000"
 ```
 
-👉 bạn đã implement `log_job_run()` ✅
-
----
-
-#### b) Schema Registry
-
-```python
-snapshot_schema(spark, df, "gold.kpi_daily", path)
+### B) Start lại stack
+```bash
+docker compose down -v
+docker compose pull
+docker compose up -d
 ```
 
-Lưu:
-
-- version
-- schema\_json
-- created\_at
-
----
-
-#### c) Lineage logic
-
-```text
-bronze.orders_raw
-  → silver.orders_fact_dt_stream
-    → gold.kpi_daily
+### C) Check health / port
+```bash
+docker ps
+# port 3000 có bị chiếm không?
+lsof -nP -iTCP:3000 -sTCP:LISTEN || true
+# test API
+curl -s http://localhost:5000/api/v1/namespaces | head
 ```
 
----
+### D) Debug khi không vào được http://localhost:3000
+1) **Xem log UI**
+```bash
+docker logs -n 200 marquez-ui
+```
+2) **Xem log API**
+```bash
+docker logs -n 200 marquez-api
+```
+3) **Test từ trong container UI sang API** (quan trọng để xác định DNS nội bộ)
+```bash
+docker exec -it marquez-ui sh -lc "apk add --no-cache curl >/dev/null 2>&1 || true; curl -s http://marquez:5000/api/v1/namespaces | head"
+```
+4) Nếu port 3000 bị chiếm → đổi port host:
+```yaml
+ports:
+  - "3010:3000"
+```
+Rồi vào `http://localhost:3010`.
 
-### 2.3 Công cụ thực tế (GCP / OSS)
-
-| Tool               | Mục đích     |
-| ------------------ | ------------ |
-| Data Catalog       | Metadata     |
-| Dataplex           | Governance   |
-| OpenLineage        | Lineage      |
-| Marquez            | Lineage UI   |
-| Great Expectations | Data Quality |
+### E) Lưu ý quan trọng
+- Trong Docker network, hostname phải là **tên service** (`marquez`, `postgres`) – không phải `container_name`.
+- Nếu bạn dùng `image: marquezproject/marquez-web:latest` mà lỗi/không lên UI → pin version `0.45.0`.
 
 ---
 

@@ -9,49 +9,44 @@ BOOTSTRAP = "localhost:9094"
 TOPIC = "orders"
 
 channels = ["ECOM", "POS", "ATM"]
-countries = ["VN", "TH", "SG", "MY"]
+countries = ["VN", "SG", "TH", "MY"]
 statuses = ["SUCCESS", "FAILED", "REVERSED"]
 
-def iso_ts(dt: datetime) -> str:
-    # Kafka->Spark from_json TimestampType thường parse tốt dạng ISO
-    return dt.replace(tzinfo=None).isoformat(timespec="seconds")
+producer = KafkaProducer(
+    bootstrap_servers=BOOTSTRAP,
+    value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+)
 
-def gen_order(i: int) -> dict:
-    now = datetime.now(timezone.utc) + timedelta(hours=7)  # VN time
+def rand_order():
+    now = datetime.now(timezone.utc)
+    # event_ts có thể “trễ” 0-120 phút để giống thực tế
+    event_ts = now - timedelta(minutes=random.randint(0, 120))
+
+    oid = f"o{random.randint(1, 9_999_999):07d}"
+    cid = f"c{random.randint(1, 99_999):05d}"
+    mid = f"m{random.randint(1, 99_999):05d}"
+
     return {
-        "order_id": f"o{random.randint(1_000_000, 9_999_999)}",
-        "customer_id": f"c{random.randint(1, 99_999)}",
-        "merchant_id": f"m{random.randint(1, 99_999)}",
-        "amount": round(random.uniform(1, 5000), 2),
-        "event_ts": iso_ts(now - timedelta(seconds=random.randint(0, 3600))),
+        "order_id": oid,
+        "customer_id": cid,
+        "merchant_id": mid,
+        "amount": round(random.uniform(1.0, 5000.0), 2),
+        "event_ts": event_ts.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "channel": random.choice(channels),
         "country": random.choice(countries),
         "status": random.choice(statuses),
     }
 
-def main():
-    producer = KafkaProducer(
-        bootstrap_servers=BOOTSTRAP,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        acks="all",
-        linger_ms=50,
-    )
-    i = 0
-    print(f"Producing to {TOPIC} @ {BOOTSTRAP} ... Ctrl+C to stop")
+if __name__ == "__main__":
+    print(f"Producing to {TOPIC} via {BOOTSTRAP} ... Ctrl+C to stop")
     try:
         while True:
-            msg = gen_order(i)
+            msg = rand_order()
             producer.send(TOPIC, msg)
-            if i % 50 == 0:
-                producer.flush()
-            print(msg)
-            i += 1
-            time.sleep(0.2)  # adjust rate
+            producer.flush()
+            print("sent:", msg)
+            time.sleep(0.2)  # ~5 msg/s
     except KeyboardInterrupt:
         pass
     finally:
-        producer.flush()
         producer.close()
-
-if __name__ == "__main__":
-    main()

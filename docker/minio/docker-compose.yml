@@ -1,0 +1,43 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - ../../data/minio:/data
+    networks:
+      - spark401-spark 
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -lc "
+      mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+      mc mb -p local/lakehouse || true &&
+      mc mb -p local/lakehouse/bronze || true &&
+      mc mb -p local/lakehouse/silver || true &&
+      mc mb -p local/lakehouse/gold || true &&
+      mc ls local/lakehouse
+      "
+    networks:
+      - spark401-spark 
+
+networks:
+  spark401-spark:
+    external: true
+    name: spark401-spark
