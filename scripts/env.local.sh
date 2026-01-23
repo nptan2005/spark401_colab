@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# NOTE: source file -> do NOT set -u
+set -eo pipefail
 
-# Project root (works in bash/zsh; prefers git root)
+# Project root
 if command -v git >/dev/null 2>&1 && git rev-parse --show-toplevel >/dev/null 2>&1; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
 else
-  SCRIPT_SOURCE="${BASH_SOURCE[0]-$0}"
-  REPO_ROOT="$(cd "$(dirname "$SCRIPT_SOURCE")/.." && pwd)"
+  _SRC="${BASH_SOURCE[0]-$0}"
+  REPO_ROOT="$(cd "$(dirname "$_SRC")/.." && pwd)"
 fi
 export REPO_ROOT
 
 # ---- Spark ----
 export SPARK_HOME="${SPARK_HOME:-$HOME/SourceCode/Python/spark-4.0.1-bin-hadoop3}"
 
-# ---- Python (prefer activated env) ----
-ACTIVE_PY="$(command -v python 2>/dev/null || true)"
-DEFAULT_PY="$HOME/opt/homebrew/anaconda3/envs/cdp_env/bin/python"
-if [[ -n "${ACTIVE_PY}" ]]; then
-  DEFAULT_PY="$ACTIVE_PY"
+# ---- Python for Spark ----
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+  _PY="${CONDA_PREFIX}/bin/python"
+else
+  _PY="/opt/homebrew/anaconda3/envs/cdp_env/bin/python"
 fi
-
-export PYSPARK_PYTHON="${PYSPARK_PYTHON:-$DEFAULT_PY}"
+export PYSPARK_PYTHON="${PYSPARK_PYTHON:-$_PY}"
 export PYSPARK_DRIVER_PYTHON="${PYSPARK_DRIVER_PYTHON:-$PYSPARK_PYTHON}"
 
-# Guard: notebooks sometimes set PYSPARK_DRIVER_PYTHON=jupyter -> breaks spark-submit
-if [[ "$PYSPARK_DRIVER_PYTHON" == "jupyter"* ]]; then
+# Guard: notebooks sometimes set jupyter
+if [[ "${PYSPARK_DRIVER_PYTHON}" == jupyter* ]]; then
   export PYSPARK_DRIVER_PYTHON="$PYSPARK_PYTHON"
 fi
 
@@ -33,8 +33,14 @@ export KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-localhost:9094}"
 export MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://127.0.0.1:9000}"
 export MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
 export MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-minioadmin123}"
-# Kafka topics
-export KAFKA_TOPIC_ORDERS="orders_raw"
+export KAFKA_TOPIC_ORDERS="${KAFKA_TOPIC_ORDERS:-orders_raw}"
+
+# ---- Marquez / OpenLineage (Airflow-level) ----
+export OPENLINEAGE_URL="${OPENLINEAGE_URL:-http://localhost:5001/api/v1/lineage}"
+export OPENLINEAGE_NAMESPACE="${OPENLINEAGE_NAMESPACE:-cpd}"
+
+# Spark OpenLineage agent: OFF for Spark 4 (prevents crash)
+export ENABLE_OPENLINEAGE="${ENABLE_OPENLINEAGE:-0}"
 
 # ---- Ivy cache pinned to repo ----
 export IVY_HOME="${IVY_HOME:-$REPO_ROOT/.cache/ivy}"
@@ -50,9 +56,13 @@ export S3A_CONF_OPTS="--conf spark.hadoop.fs.s3a.endpoint=${MINIO_ENDPOINT} \
   --conf spark.hadoop.fs.s3a.secret.key=${MINIO_SECRET_KEY} \
   --conf spark.hadoop.fs.s3a.path.style.access=true \
   --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false \
-  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
+  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  --conf spark.hadoop.fs.s3a.connection.timeout=60000 \
+  --conf spark.hadoop.fs.s3a.connection.establish.timeout=60000 \
+  --conf spark.hadoop.fs.s3a.attempts.maximum=20"
 
 # ---- common opts ----
+mkdir -p "$REPO_ROOT/logs/spark-events" "$IVY_HOME/cache" "$IVY_HOME/jars" >/dev/null 2>&1 || true
 export SPARK_SUBMIT_COMMON_OPTS="--conf spark.sql.session.timeZone=Asia/Ho_Chi_Minh \
   --conf spark.eventLog.enabled=true \
   --conf spark.eventLog.dir=$REPO_ROOT/logs/spark-events \

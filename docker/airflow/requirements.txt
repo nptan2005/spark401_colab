@@ -1,0 +1,23 @@
+# --- remove this ---
+# logging
+
+cryptography
+ebcdic
+fonttools
+hexdump
+ipython
+pretty-html-table
+pyemv
+pyiso8583
+xlsxwriter
+pydantic
+psycopg2-binary
+openpyxl
+pysftp
+celery>=5.3.0
+requests
+boto3
+minio
+
+# Nếu không cần parquet via fastparquet thì bỏ hẳn:
+# fastparquet

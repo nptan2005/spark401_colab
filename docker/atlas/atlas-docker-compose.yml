@@ -1,0 +1,165 @@
+version: "3.9"
+
+name: spark401-atlas-openmetadata
+
+services:
+  postgres-openmetadata:
+    image: postgres:13
+    container_name: postgres-openmetadata
+    environment:
+      POSTGRES_USER: openmetadata
+      POSTGRES_PASSWORD: openmetadata_password
+      POSTGRES_DB: openmetadata_db
+    volumes:
+      - atlas_openmetadata_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openmetadata -d openmetadata_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks:
+      - spark401-spark
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.2
+    container_name: elasticsearch
+    environment:
+      # Single node cho local
+      discovery.type: single-node
+
+      # OpenMetadata thường dùng basic, local thì tắt security để đỡ rườm rà
+      xpack.security.enabled: "false"
+
+      # Giảm tải ES
+      xpack.ml.enabled: "false"
+      ingest.geoip.downloader.enabled: "false"
+
+      # QUAN TRỌNG: giảm heap để tránh exit 137
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+
+      # Một số setting nhẹ nhàng cho dev/local
+      bootstrap.memory_lock: "true"
+      logger.level: "INFO"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    # QUAN TRỌNG: giới hạn/đặt rõ memory cho ES (Docker Desktop rất hay kill nếu không đủ)
+    mem_limit: 2g
+    volumes:
+      - atlas_esdata:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health?pretty | grep -E '\"status\"\\s*:\\s*\"(green|yellow)\"' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    networks:
+      - spark401-spark
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.6
+    container_name: keycloak
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY: "edge"
+    ports:
+      - "8081:8080"
+    networks:
+      - spark401-spark
+
+  execute-migrate-all:
+    image: openmetadata/server:1.5.4
+    container_name: execute-migrate-all
+    depends_on:
+      postgres-openmetadata:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      # DB
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      DB_HOST: postgres-openmetadata
+      DB_PORT: 5432
+      DB_USER: openmetadata
+      DB_USER_PASSWORD: openmetadata_password
+      DB_DATABASE: openmetadata_db
+
+      # ES
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      SEARCH_TYPE: elasticsearch
+
+      # Server basic
+      SERVER_HOST_API_URL: http://openmetadata:8585/api
+      SERVER_HOST_UI_URL: http://localhost:8585
+    command: ["./bootstrap/bootstrap_storage.sh", "migrate-all"]
+    networks:
+      - spark401-spark
+
+  openmetadata:
+    image: openmetadata/server:1.5.4
+    container_name: openmetadata
+    depends_on:
+      postgres-openmetadata:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      execute-migrate-all:
+        condition: service_started
+    environment:
+      # DB
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      DB_HOST: postgres-openmetadata
+      DB_PORT: 5432
+      DB_USER: openmetadata
+      DB_USER_PASSWORD: openmetadata_password
+      DB_DATABASE: openmetadata_db
+
+      # ES
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      SEARCH_TYPE: elasticsearch
+
+      # Auth (tuỳ bạn dùng Keycloak hay internal)
+      AUTHENTICATION_PROVIDER: basic
+      # Nếu bạn muốn dùng keycloak thì đổi sang:
+      # AUTHENTICATION_PROVIDER: "openid"
+      # AUTHENTICATION_PUBLIC_KEYS: "http://keycloak:8080/realms/openmetadata/protocol/openid-connect/certs"
+      # AUTHENTICATION_AUTHORITY: "http://localhost:8081/realms/openmetadata"
+      # AUTHENTICATION_CLIENT_ID: "openmetadata"
+      # AUTHENTICATION_CALLBACK_URL: "http://localhost:8585/callback"
+
+      # URL
+      SERVER_HOST_API_URL: http://localhost:8585/api
+      SERVER_HOST_UI_URL: http://localhost:8585
+
+      # Giảm log noise
+      LOG_LEVEL: INFO
+    ports:
+      - "8585:8585"
+    networks:
+      - spark401-spark
+
+networks:
+  spark401-spark:
+    external: true
+    name: spark401-spark
+
+volumes:
+  atlas_esdata:
+    name: spark401-openmetadata_atlas_esdata
+  atlas_openmetadata_pgdata:
+    name: spark401-openmetadata_atlas_openmetadata_pgdata

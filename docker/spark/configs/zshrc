@@ -1,0 +1,20 @@
+# ~/.zshrc minimal + starship
+export LANG=en_US.UTF-8
+export TERM=xterm-256color
+# disable Oh-my-zsh heavy features (we keep it minimal)
+# use starship prompt
+if [ -x "$(command -v starship)" ]; then
+  eval "$(starship init zsh)"
+fi
+
+# useful aliases
+alias ll='ls -la --color=auto'
+alias la='ls -A'
+alias l='ls -CF'
+export EDITOR=vim
+
+# enable direnv if you use it (optional)
+# eval "$(direnv hook zsh)"
+
+# PATH adjustments (if you installed local binaries)
+export PATH="$HOME/.local/bin:$PATH"

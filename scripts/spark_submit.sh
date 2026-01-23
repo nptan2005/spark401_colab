@@ -1,47 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Repo root
 if command -v git >/dev/null 2>&1 && git rev-parse --show-toplevel >/dev/null 2>&1; then
   REPO_ROOT="$(git rev-parse --show-toplevel)"
 else
-  SCRIPT_SOURCE="${BASH_SOURCE[0]-$0}"
-  REPO_ROOT="$(cd "$(dirname "$SCRIPT_SOURCE")/.." && pwd)"
+  _SRC="${BASH_SOURCE[0]-$0}"
+  REPO_ROOT="$(cd "$(dirname "$_SRC")/.." && pwd)"
 fi
 
-# load env
+# shellcheck disable=SC1091
 source "$REPO_ROOT/scripts/env.local.sh"
 
-IVY_HOME="${IVY_HOME:-$REPO_ROOT/.cache/ivy}"
-mkdir -p "$IVY_HOME/cache" "$IVY_HOME/jars" "$REPO_ROOT/logs/spark-events"
-
-if [[ "${1-}" == "--warmup" ]]; then
-  echo "[warmup] ivy=${IVY_HOME/#$HOME/~}"
-  EXAMPLES_JAR="$SPARK_HOME/examples/jars/spark-examples_2.13-4.0.1.jar"
-  "$SPARK_HOME/bin/spark-submit" \
-    --master local[1] \
-    --class org.apache.spark.examples.SparkPi \
-    --packages "$SPARK_PKGS" \
-    --conf "spark.jars.ivy=$IVY_HOME" \
-    $S3A_CONF_OPTS \
-    $SPARK_SUBMIT_COMMON_OPTS \
-    "$EXAMPLES_JAR" 5
-  echo "[warmup] done"
-  exit 0
-fi
-
 APP="${1:-}"
+if [[ -z "$APP" ]]; then
+  echo "Usage: scripts/spark_submit.sh <python_job.py> [args...]" >&2
+  exit 2
+fi
 shift || true
 
-# force python (avoid jupyter)
-if [[ "$PYSPARK_DRIVER_PYTHON" == "jupyter"* ]]; then
+if [[ "${PYSPARK_DRIVER_PYTHON:-}" == jupyter* ]]; then
   export PYSPARK_DRIVER_PYTHON="$PYSPARK_PYTHON"
 fi
-export PYSPARK_PYTHON PYSPARK_DRIVER_PYTHON
 
-"$SPARK_HOME/bin/spark-submit" \
-  --master local[*] \
-  --packages "$SPARK_PKGS" \
-  --conf "spark.jars.ivy=$IVY_HOME" \
-  $S3A_CONF_OPTS \
-  $SPARK_SUBMIT_COMMON_OPTS \
-  "$APP" "$@"
+SUBMIT=(
+  "$SPARK_HOME/bin/spark-submit"
+  --master "local[*]"
+  --packages "$SPARK_PKGS"
+)
+
+# shellcheck disable=SC2206
+SUBMIT+=( $SPARK_SUBMIT_COMMON_OPTS )
+# shellcheck disable=SC2206
+SUBMIT+=( $S3A_CONF_OPTS )
+
+# Spark OL agent OFF (Spark4 crash). Lineage dùng Airflow -> Marquez.
+if [[ "${ENABLE_OPENLINEAGE:-0}" == "1" ]]; then
+  echo "[spark_submit] ENABLE_OPENLINEAGE=1 requested but Spark 4 agent is not safe. Keeping it OFF." >&2
+fi
+
+exec "${SUBMIT[@]}" "$APP" "$@"

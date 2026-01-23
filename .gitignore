@@ -249,6 +249,12 @@ data/*
 
 checkpoints/*
 
+docker/airflow/instantclient/*
+docker/airflow/jars/*
+
+docker/spark/jars/*
+docker/spark/opentelemetry_jar/*
+
 kafka_data/*
 
 metastore_db/*

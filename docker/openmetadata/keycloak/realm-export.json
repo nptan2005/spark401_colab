@@ -1,0 +1,44 @@
+{
+  "realm": "spark-demo-realm",
+  "enabled": true,
+  "users": [
+    {
+      "username": "demo_user",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo123",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "spark-ui",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:8080/*"],
+      "publicClient": true,
+      "directAccessGrantsEnabled": true
+    },
+    {
+      "clientId": "jupyterlab",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:8888/*"],
+      "publicClient": true,
+      "directAccessGrantsEnabled": true
+    },
+    {
+      "clientId": "airflow",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:8082/*"],
+      "publicClient": true,
+      "directAccessGrantsEnabled": true
+    }
+  ]
+}

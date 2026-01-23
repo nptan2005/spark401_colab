@@ -12,18 +12,20 @@ services:
     volumes:
       - airflow_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow -h localhost || exit 1"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 10s
+      retries: 10
     ports:
-      - "5433:5432"   # tránh đụng 5432 của marquez-postgres
+      - "5433:5432"
     networks:
-      - spark401-spark 
+      - spark401-spark
 
   airflow-init:
-    image: apache/airflow:2.10.4
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nptan2005/airflow-spark401:2.10.5
     container_name: airflow-init
     depends_on:
       airflow-postgres:
@@ -33,56 +35,73 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
 
-      # Web login (dev)
-      _AIRFLOW_WWW_USER_USERNAME: admin
-      _AIRFLOW_WWW_USER_PASSWORD: admin
-
-      # OpenLineage -> Marquez (trong Docker network)
+      # OpenLineage (Airflow side)
       AIRFLOW__OPENLINEAGE__DISABLED: "false"
       AIRFLOW__OPENLINEAGE__NAMESPACE: "spark401"
       AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type":"http","url":"http://marquez-api:5000/api/v1/lineage"}'
 
-      # cài thêm provider OpenLineage (dev-friendly)
-      _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.11.0 apache-airflow-providers-openlineage==1.8.0 openlineage-python==1.16.0"
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
+
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      _AIRFLOW_WWW_USER_FIRSTNAME: Tan
+      _AIRFLOW_WWW_USER_LASTNAME: Nguyen
+      _AIRFLOW_WWW_USER_ROLE: Admin
+      _AIRFLOW_WWW_USER_EMAIL: nptan2005@gmail.com
     volumes:
-      - ../../:/opt/project:rw
       - ../../dags:/opt/airflow/dags:rw
       - ../../logs/airflow:/opt/airflow/logs:rw
       - ../../plugins:/opt/airflow/plugins:rw
+      - ../../spark/jobs:/opt/spark/jobs:rw
+      - ../spark/jars:/opt/jars:rw
+      - ../../data/data_lab:/data:rw
     networks:
-      - spark401-spark 
+      - spark401-spark
     entrypoint: /bin/bash
-    command: -c "airflow db migrate && airflow users create --username $${_AIRFLOW_WWW_USER_USERNAME} --password $${_AIRFLOW_WWW_USER_PASSWORD} --firstname Admin --lastname User --role Admin --email admin@example.com || true"
+    command:
+      - -lc
+      - |
+        set -e
+        airflow db migrate
+        airflow users create \
+          --username "${_AIRFLOW_WWW_USER_USERNAME}" \
+          --password "${_AIRFLOW_WWW_USER_PASSWORD}" \
+          --firstname "${_AIRFLOW_WWW_USER_FIRSTNAME}" \
+          --lastname "${_AIRFLOW_WWW_USER_LASTNAME}" \
+          --role "${_AIRFLOW_WWW_USER_ROLE}" \
+          --email "${_AIRFLOW_WWW_USER_EMAIL}" || true
 
   airflow-webserver:
-    image: apache/airflow:2.10.4
+    image: nptan2005/airflow-spark401:2.10.5
     container_name: airflow-webserver
     restart: unless-stopped
     depends_on:
-      airflow-postgres:
-        condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
+      airflow-postgres:
+        condition: service_healthy
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
       AIRFLOW__WEBSERVER__WEB_SERVER_HOST: 0.0.0.0
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
 
       AIRFLOW__OPENLINEAGE__DISABLED: "false"
       AIRFLOW__OPENLINEAGE__NAMESPACE: "spark401"
       AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type":"http","url":"http://marquez-api:5000/api/v1/lineage"}'
 
-      _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.11.0 apache-airflow-providers-openlineage==1.8.0 openlineage-python==1.16.0"
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
     volumes:
-      - ../../:/opt/project:rw
       - ../../dags:/opt/airflow/dags:rw
       - ../../logs/airflow:/opt/airflow/logs:rw
       - ../../plugins:/opt/airflow/plugins:rw
+      - ../../spark/jobs:/opt/spark/jobs:rw
+      - ../spark/jars:/opt/jars:rw
+      - ../../data/data_lab:/data:rw
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - spark401-spark 
+      - spark401-spark
     ports:
       - "8080:8080"
     command: webserver
@@ -91,17 +110,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 20s
+      start_period: 30s
 
   airflow-scheduler:
-    image: apache/airflow:2.10.4
+    image: nptan2005/airflow-spark401:2.10.5
     container_name: airflow-scheduler
     restart: unless-stopped
     depends_on:
-      airflow-postgres:
-        condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
+      airflow-postgres:
+        condition: service_healthy
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
@@ -111,15 +130,17 @@ services:
       AIRFLOW__OPENLINEAGE__NAMESPACE: "spark401"
       AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type":"http","url":"http://marquez-api:5000/api/v1/lineage"}'
 
-      _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.11.0 apache-airflow-providers-openlineage==1.8.0 openlineage-python==1.16.0"
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
     volumes:
-      - ../../:/opt/project:rw
       - ../../dags:/opt/airflow/dags:rw
       - ../../logs/airflow:/opt/airflow/logs:rw
       - ../../plugins:/opt/airflow/plugins:rw
+      - ../../spark/jobs:/opt/spark/jobs:rw
+      - ../spark/jars:/opt/jars:rw
+      - ../../data/data_lab:/data:rw
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - spark401-spark 
+      - spark401-spark
     command: scheduler
 
 volumes:

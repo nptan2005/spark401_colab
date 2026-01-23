@@ -2,10 +2,10 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":9002"
     ports:
       - "9000:9000"   # S3 API
-      - "9001:9001"   # Console UI
+      - "9002:9002"   # Console UI
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
@@ -27,12 +27,19 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -lc "
-      mc alias set local http://minio:9000 minioadmin minioadmin123 &&
-      mc mb -p local/lakehouse || true &&
-      mc mb -p local/lakehouse/bronze || true &&
-      mc mb -p local/lakehouse/silver || true &&
-      mc mb -p local/lakehouse/gold || true &&
-      mc ls local/lakehouse
+      set -e;
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+
+      # Create bucket (only ONE bucket)
+      mc mb -p local/lakehouse || true;
+
+      # Create prefixes by uploading a keep file (S3 has no real folders)
+      echo 'keep' | mc pipe local/lakehouse/bronze/.keep;
+      echo 'keep' | mc pipe local/lakehouse/silver/.keep;
+      echo 'keep' | mc pipe local/lakehouse/gold/.keep;
+      echo 'keep' | mc pipe local/lakehouse/checkpoints/.keep;
+
+      mc ls local/lakehouse;
       "
     networks:
       - spark401-spark 

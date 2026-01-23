@@ -1,0 +1,29 @@
+source:
+  type: s3
+  serviceName: local_minio
+  serviceConnection:
+    config:
+      type: S3
+      awsConfig:
+        awsAccessKeyId: minioadmin
+        awsSecretAccessKey: minioadmin123
+        awsRegion: us-east-1
+      endPointURL: http://minio:9000
+      supportsMetadataExtraction: true
+      # nếu có option path style thì bật trong UI; file yaml tuỳ version connector
+
+  sourceConfig:
+    config:
+      type: StorageMetadata
+      bucketName: lakehouse
+      prefix: silver/orders
+
+sink:
+  type: metadata-rest
+  config:
+    apiEndpoint: http://openmetadata:8585/api
+    authProvider: openmetadata
+    securityConfig:
+      jwtToken: ""
+workflowConfig:
+  loggerLevel: INFO

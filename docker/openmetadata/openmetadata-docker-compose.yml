@@ -1,0 +1,269 @@
+name: spark401-openmetadata
+
+services:
+  # ----------------------------
+  # PostgreSQL cho OpenMetadata
+  # ----------------------------
+  postgres-openmetadata:
+    image: docker.getcollate.io/openmetadata/postgresql:1.10.8
+    container_name: postgres-openmetadata
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openmetadata_user
+      POSTGRES_PASSWORD: openmetadata_password
+      POSTGRES_DB: openmetadata_db
+    ports:
+      - "5532:5432"   # optional, có thể bỏ nếu không cần connect từ host
+    volumes:
+      - openmetadata_pgdata:/var/lib/postgresql/data
+    # command của postgres nên dùng -c
+    command: ["postgres", "-c", "work_mem=10MB"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openmetadata_user -d openmetadata_db -h 127.0.0.1 -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [spark401-spark]
+  
+  # ----------------------------
+  # OpenMetadata server
+  # ----------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.2
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow\\&timeout=60s | grep -E 'yellow|green'"]
+      interval: 10s
+      timeout: 10s
+      retries: 90
+      start_period: 90s
+    networks: [spark401-spark] 
+
+  ####################
+  # KEYCLOAK
+  ####################
+  keycloak:
+    image: quay.io/keycloak/keycloak:21.1.1
+    container_name: keycloak
+    environment:
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN:-admin}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8081:8080"
+      - "9001:9000"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+      - ../../logs/keycloak:/opt/keycloak/logs
+    entrypoint:
+      - "/opt/keycloak/bin/kc.sh"
+      - "start-dev"
+      - "--import-realm"
+    networks: [spark401-spark]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  
+  execute-migrate-all:
+    container_name: execute_migrate_all
+    image: docker.getcollate.io/openmetadata/server:1.10.8
+    command: "./bootstrap/openmetadata-ops.sh migrate"
+    environment:
+      # OPENMETADATA_CLUSTER_NAME: openmetadata
+      SERVER_PORT: 8585
+      SERVER_ADMIN_PORT: 8586
+      LOG_LEVEL: INFO
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      DB_USER: openmetadata_user
+      DB_USER_PASSWORD: openmetadata_password
+      DB_HOST: postgres-openmetadata
+      DB_PORT: 5432
+      OM_DATABASE: openmetadata_db
+      # ElasticSearch Configurations
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+      ELASTICSEARCH_SCHEME: ${ELASTICSEARCH_SCHEME:-http}
+      ELASTICSEARCH_USER: ${ELASTICSEARCH_USER:-""}
+      ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD:-""}
+      SEARCH_TYPE: ${SEARCH_TYPE:- "elasticsearch"}
+      ELASTICSEARCH_TRUST_STORE_PATH: ${ELASTICSEARCH_TRUST_STORE_PATH:-""}
+      ELASTICSEARCH_TRUST_STORE_PASSWORD: ${ELASTICSEARCH_TRUST_STORE_PASSWORD:-""}
+      ELASTICSEARCH_CONNECTION_TIMEOUT_SECS: ${ELASTICSEARCH_CONNECTION_TIMEOUT_SECS:-5}
+      ELASTICSEARCH_SOCKET_TIMEOUT_SECS: ${ELASTICSEARCH_SOCKET_TIMEOUT_SECS:-60}
+      ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS: ${ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS:-600}
+      ELASTICSEARCH_BATCH_SIZE: ${ELASTICSEARCH_BATCH_SIZE:-100}
+      ELASTICSEARCH_PAYLOAD_BYTES_SIZE: ${ELASTICSEARCH_PAYLOAD_BYTES_SIZE:-10485760}   #max payLoadSize in Bytes
+      ELASTICSEARCH_INDEX_MAPPING_LANG: ${ELASTICSEARCH_INDEX_MAPPING_LANG:-EN}
+
+      #eventMonitoringConfiguration
+      EVENT_MONITOR: ${EVENT_MONITOR:-prometheus}
+      EVENT_MONITOR_BATCH_SIZE: ${EVENT_MONITOR_BATCH_SIZE:-10}
+      EVENT_MONITOR_PATH_PATTERN: ${EVENT_MONITOR_PATH_PATTERN:-["/api/v1/tables/*", "/api/v1/health-check"]}
+      EVENT_MONITOR_LATENCY: ${EVENT_MONITOR_LATENCY:-[]}
+      #pipelineServiceClientConfiguration
+      PIPELINE_SERVICE_CLIENT_ENABLED: ${PIPELINE_SERVICE_CLIENT_ENABLED:-true}
+      PIPELINE_SERVICE_CLIENT_CLASS_NAME: ${PIPELINE_SERVICE_CLIENT_CLASS_NAME:-"org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"}
+      PIPELINE_SERVICE_IP_INFO_ENABLED: ${PIPELINE_SERVICE_IP_INFO_ENABLED:-false}
+      PIPELINE_SERVICE_CLIENT_HOST_IP: ${PIPELINE_SERVICE_CLIENT_HOST_IP:-""}
+      PIPELINE_SERVICE_CLIENT_SECRETS_MANAGER_LOADER: ${PIPELINE_SERVICE_CLIENT_SECRETS_MANAGER_LOADER:-"noop"}
+      #airflow parameters
+      AIRFLOW_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      AIRFLOW_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+      AIRFLOW_TIMEOUT: ${AIRFLOW_TIMEOUT:-10}
+      AIRFLOW_TRUST_STORE_PATH: ${AIRFLOW_TRUST_STORE_PATH:-""}
+      AIRFLOW_TRUST_STORE_PASSWORD: ${AIRFLOW_TRUST_STORE_PASSWORD:-""}
+      FERNET_KEY: ${FERNET_KEY:-dummy_fernet_key}
+
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      postgres-openmetadata:
+        condition: service_healthy
+    networks: [spark401-spark]
+  
+  openmetadata:
+    restart: always
+    image: docker.getcollate.io/openmetadata/server:1.10.8
+    container_name: openmetadata
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      postgres-openmetadata:
+        condition: service_healthy
+      execute-migrate-all:
+        condition: service_completed_successfully
+    environment:
+      SERVER_PORT: 8585
+      SERVER_ADMIN_PORT: 8586
+      LOG_LEVEL: INFO
+      SERVER_HOST_API_URL: http://openmetadata:8585/api
+      #Database configuration for postgresql
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      # DB_PARAMS: ${DB_PARAMS:-allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC}
+      DB_USER: openmetadata_user
+      DB_USER_PASSWORD: openmetadata_password
+      DB_HOST: postgres-openmetadata
+      DB_PORT: 5432
+      OM_DATABASE: openmetadata_db
+      #eventMonitoringConfiguration
+      EVENT_MONITOR: prometheus
+      EVENT_MONITOR_BATCH_SIZE: 10
+      EVENT_MONITOR_PATH_PATTERN: ${EVENT_MONITOR_PATH_PATTERN:-["/api/v1/tables/*", "/api/v1/health-check"]}
+      EVENT_MONITOR_LATENCY: ${EVENT_MONITOR_LATENCY:-[]}
+      # ElasticSearch Configurations
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+      ELASTICSEARCH_SCHEME: ${ELASTICSEARCH_SCHEME:-http}
+      ELASTICSEARCH_USER: ${ELASTICSEARCH_USER:-""}
+      ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD:-""}
+      SEARCH_TYPE: ${SEARCH_TYPE:-"elasticsearch"}
+      ELASTICSEARCH_TRUST_STORE_PATH: ${ELASTICSEARCH_TRUST_STORE_PATH:-""}
+      ELASTICSEARCH_TRUST_STORE_PASSWORD: ${ELASTICSEARCH_TRUST_STORE_PASSWORD:-""}
+      ELASTICSEARCH_CONNECTION_TIMEOUT_SECS: ${ELASTICSEARCH_CONNECTION_TIMEOUT_SECS:-5}
+      ELASTICSEARCH_SOCKET_TIMEOUT_SECS: ${ELASTICSEARCH_SOCKET_TIMEOUT_SECS:-60}
+      ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS: ${ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS:-600}
+      ELASTICSEARCH_BATCH_SIZE: ${ELASTICSEARCH_BATCH_SIZE:-100}
+      ELASTICSEARCH_PAYLOAD_BYTES_SIZE: ${ELASTICSEARCH_PAYLOAD_BYTES_SIZE:-10485760}   #max payLoadSize in Bytes
+      ELASTICSEARCH_INDEX_MAPPING_LANG: ${ELASTICSEARCH_INDEX_MAPPING_LANG:-EN}
+      #pipelineServiceClientConfiguration
+      PIPELINE_SERVICE_CLIENT_ENABLED: ${PIPELINE_SERVICE_CLIENT_ENABLED:-true}
+      PIPELINE_SERVICE_CLIENT_CLASS_NAME: ${PIPELINE_SERVICE_CLIENT_CLASS_NAME:-"org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"}
+      PIPELINE_SERVICE_IP_INFO_ENABLED: ${PIPELINE_SERVICE_IP_INFO_ENABLED:-false}
+      PIPELINE_SERVICE_CLIENT_HOST_IP: ${PIPELINE_SERVICE_CLIENT_HOST_IP:-""}
+      PIPELINE_SERVICE_CLIENT_SECRETS_MANAGER_LOADER: ${PIPELINE_SERVICE_CLIENT_SECRETS_MANAGER_LOADER:-"noop"}
+      #airflow parameters
+      AIRFLOW_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      AIRFLOW_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+      AIRFLOW_TIMEOUT: ${AIRFLOW_TIMEOUT:-10}
+      AIRFLOW_TRUST_STORE_PATH: ${AIRFLOW_TRUST_STORE_PATH:-""}
+      AIRFLOW_TRUST_STORE_PASSWORD: ${AIRFLOW_TRUST_STORE_PASSWORD:-""}
+      FERNET_KEY: ${FERNET_KEY:-dummy_fernet_key}
+    expose:
+      - 8585
+      - 8586
+    ports:
+      - "8585:8585"
+      - "8586:8586"
+    networks: [spark401-spark]
+    # env_file:
+    #   - ../.env
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider",  "http://localhost:8586/healthcheck" ]
+
+
+
+  openmetadata-ingestion:
+    container_name: openmetadata_ingestion
+    image: docker.getcollate.io/openmetadata/ingestion:1.10.8
+    depends_on:
+      elasticsearch:
+        condition: service_started
+      postgres-openmetadata:
+        condition: service_healthy
+      openmetadata:
+        condition: service_started
+    environment:
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__OPENMETADATA_AIRFLOW_APIS__DAG_GENERATED_CONFIGS: "/opt/airflow/dag_generated_configs"
+      DB_HOST: ${AIRFLOW_DB_HOST:-airflow-postgres}
+      DB_PORT: ${AIRFLOW_DB_PORT:-5432}
+      AIRFLOW_DB: ${AIRFLOW_DB:-airflow}
+      DB_USER: ${AIRFLOW_DB_USER:-airflow}
+      DB_SCHEME: ${AIRFLOW_DB_SCHEME:-postgresql+psycopg2}
+      DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-airflow}
+      # extra connection-string properties for the database
+      # EXAMPLE 
+      # require SSL (only for Postgres)
+      # properties: "?sslmode=require"
+      DB_PROPERTIES: ${AIRFLOW_DB_PROPERTIES:-}
+      # To test the lineage backend
+      AIRFLOW__LINEAGE__BACKEND: airflow_provider_openmetadata.lineage.backend.OpenMetadataLineageBackend
+      AIRFLOW__LINEAGE__AIRFLOW_SERVICE_NAME: local_airflow
+      AIRFLOW__LINEAGE__OPENMETADATA_API_ENDPOINT: http://openmetadata:8585/api
+      OPENMETADATA_SERVER_URL: http://openmetadata:8585/api
+      # AIRFLOW__LINEAGE__JWT_TOKEN: ...
+    entrypoint: /bin/bash
+    command:
+      - "/opt/airflow/ingestion_dependency.sh"
+    expose:
+      - 8588
+    ports:
+      - "8588:8588"
+    networks: [spark401-spark]
+    volumes:
+      - ingestion-volume-dag-airflow:/opt/airflow/dag_generated_configs
+      - ingestion-volume-dags:/opt/airflow/dags
+      - ingestion-volume-tmp:/tmp
+      # - ./ingestion/minio_ingestion.yaml:opt/airflow/minio_ingestion.yaml
+
+
+ 
+
+volumes:
+  openmetadata_pgdata:
+  ingestion-volume-dag-airflow:
+  ingestion-volume-dags:
+  ingestion-volume-tmp:
+  esdata:
+
+networks:
+  spark401-spark:
+    external: true
+    name: spark401-spark
+

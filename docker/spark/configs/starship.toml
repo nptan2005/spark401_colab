@@ -1,0 +1,46 @@
+add_newline = false
+
+format = """
+$time $username $directory $git_branch $git_status $python $nodejs $status
+"""
+
+# -------- Time ----------
+[time]
+disabled = false
+time_format = "%H:%M:%S"
+format = "[ $time ]($style) "
+style = "dim"
+
+# -------- Username ----------
+[username]
+show_always = true
+style_user = "bold green"
+format = "[$user]($style) "
+
+# -------- Directory ----------
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+style = "blue bold"
+
+# -------- Git Branch ----------
+[git_branch]
+symbol = " "
+format = "[$symbol$branch]($style) "
+style = "purple"
+
+# -------- Git Status ----------
+[git_status]
+style = "yellow"
+format = "[$all_status$ahead_behind]($style) "
+
+# -------- Python ----------
+[python]
+symbol = " "
+format = "via [$symbol$version]($style) "
+style = "bold yellow"
+
+# -------- NodeJS ----------
+[nodejs]
+format = "[Node $version]($style) "
+style = "bold green"
