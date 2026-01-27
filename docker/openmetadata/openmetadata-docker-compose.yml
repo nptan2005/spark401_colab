@@ -246,11 +246,12 @@ services:
     ports:
       - "8588:8588"
     networks: [spark401-spark]
+    tty: true
     volumes:
       - ingestion-volume-dag-airflow:/opt/airflow/dag_generated_configs
       - ingestion-volume-dags:/opt/airflow/dags
       - ingestion-volume-tmp:/tmp
-      # - ./ingestion/minio_ingestion.yaml:opt/airflow/minio_ingestion.yaml
+      - ./ingestion:/opt/airflow/ingestion:rw
 
 
  
